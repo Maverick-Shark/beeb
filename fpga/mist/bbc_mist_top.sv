@@ -2,6 +2,9 @@
 // bbc_mist_top.v
 module bbc_mist_top(
 	input         CLOCK_27,
+`ifdef USE_CLOCK_50
+	input         CLOCK_50,
+`endif
 
 	output        LED,
 	output [VGA_BITS-1:0] VGA_R,
@@ -85,11 +88,40 @@ module bbc_mist_top(
 `ifdef USE_AUDIO_IN
 	input         AUDIO_IN,
 `endif
-`ifdef SIDI128_EXPANSION
+// SIDI128 & POSEIDON TAPE EXPANSION
+`ifdef USE_EXPANSION
 	input         UART_CTS,
 	output        UART_RTS,
 	inout         EXP7,
 	inout         MOTOR_CTRL,
+`endif
+`ifdef USE_EXTBUS	
+	output [23:0]  BUS_A = 24'b0,
+	inout  [15:0]  BUS_D = 16'b0,
+	inout          USER1,
+	inout          USER2,
+	inout          USER3,
+	inout          USER5,
+	inout          USER6,
+	inout          USER7,
+	inout          N41,
+	inout          N42,
+	inout          N43,
+	inout          N44,
+	inout          N45,
+	inout          N46,
+	inout          N47,
+	inout          N48,
+	output         BUS_nRESET,
+	output         BUS_nM1,
+	output         BUS_nMREQ,
+	output         BUS_nIORQ,
+	output         BUS_nRD,
+	output         BUS_nWR,
+	output         BUS_nRFSH,
+	output         BUS_nHALT,
+	output         BUS_nBUSAK,
+	output reg     BUS_CLK,
 `endif
 	input         UART_RX,
 	output        UART_TX
@@ -154,16 +186,20 @@ assign LED = ~loader_active;
 parameter CONF_STR = {
         "BBC;ROM;",
         "S1U,SSDDSD,Mount Disk;",
+		`SEP
         "O12,Scanlines,Off,25%,50%,75%;",
         "O3,Joystick Swap,Off,On;",
         "O4,Mode,Model B,Master;",
         "O5,ROM mapping,High,Low;",
         "O6,Auto boot,Off,On;",
-`ifndef SIDI128_EXPANSION
+`ifndef USE_EXPANSION
+		`SEP
         "O7,Userport,Tape,UART;",
 `endif
-        "R64,Save CMOS;",
-        "T0,Reset;"
+ 		`SEP
+		"R64,Save CMOS;",
+        "T0,Reset;",
+		"V,v",`BUILD_DATE
 };
 
 wire [1:0] scanlines = status[2:1];
@@ -211,25 +247,34 @@ wire        ps2_dat;
 
 // the top file should generate the correct clocks for the machine
 
-assign SDRAM_CLK = clk_48m;
+`ifdef INVERT_SDRAM_CLOCK
+	assign SDRAM_CLK = ~clk_48m;
+`else
+	assign SDRAM_CLK = clk_48m;
+`endif
 
 clockgen CLOCKS(
-	.inclk0	(CLOCK_27),
-	.c0		(clk_48m),
-	.locked	(pll_ready)  // pll locked output
+`ifdef CLOCK_IN_50
+	.inclk0	( CLOCK_50		),
+`else
+	.inclk0	( CLOCK_27		),
+`endif
+	.c0		( clk_48m		),
+	.locked	( pll_ready		)  // pll locked output
 );
 
-
+// SIDI128 & POSEIDON TAPE EXPANSION 
 wire uart_rts, uart_cts, cass_motor;
-`ifdef SIDI128_EXPANSION
-assign MOTOR_CTRL = cass_motor ? 1'b0 : 1'bZ;
-assign UART_TX = uart_tx;
-assign UART_RTS = uart_rts;
-assign uart_cts = UART_CTS;
-assign EXP7 = 1'bZ;
+
+`ifdef USE_EXPANSION
+	assign MOTOR_CTRL = cass_motor ? 1'b0 : 1'bZ;
+	assign UART_TX = uart_tx;
+	assign UART_RTS = uart_rts;
+	assign uart_cts = UART_CTS;
+	assign EXP7 = 1'bZ;
 `else
-assign UART_TX = uart_en ? uart_tx : ~cass_motor;
-assign uart_cts = 0;
+	assign UART_TX = uart_en ? uart_tx : ~cass_motor;
+	assign uart_cts = 0;
 `endif
 
 // conections between user_io (implementing the SPI communication 
