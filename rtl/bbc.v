@@ -2,7 +2,7 @@
 
 module bbc(
 
-	input		    CLK48M_I,
+	input       CLK48M_I,
 	input       RESET_I,
 
 	input       MODEL_I,
@@ -47,22 +47,22 @@ module bbc(
 	input         SDMISO,
 
 	// analog joystick input 
-	input [1:0]	 	joy_but,
+	input [1:0] 	joy_but,
 	input [7:0] 	joy0_axis0,
 	input [7:0] 	joy0_axis1,
 	input [7:0] 	joy1_axis0,
 	input [7:0] 	joy1_axis1,
 
 	// boot settings
-	input [7:0]		DIP_SWITCH,
+	input [7:0] 	DIP_SWITCH,
 
 	//FDC signals
-	input         img_mounted, // signaling that new image has been mounted
+	input   [1:0] img_mounted, // signaling that new image has been mounted
 	input  [31:0] img_size,    // size of image in bytes
 	input         img_ds,      // SSD/DSD file
 	output [31:0] sd_lba,
-	output        sd_rd,
-	output        sd_wr,
+	output  [1:0] sd_rd,
+	output  [1:0] sd_wr,
 	input         sd_ack,
 	input   [8:0] sd_buff_addr,
 	input   [7:0] sd_dout,
@@ -94,13 +94,14 @@ assign PHI0 = cpu_phi0;
 assign VIDEO_DE = ~vidproc_blank;
 assign SHADOW_VID = acc_d;
 
-wire 		  ram_we;
+wire   ram_we;
 
 //  ROM select latch
 reg  [7:0] romsel;
 
 // clock enable signals
 
+wire mhz6_clken;
 wire mhz4_clken;
 wire mhz2_clken;
 wire mhz1_clken;
@@ -139,7 +140,7 @@ wire     fdcon_enable;
 wire     adlc_enable; 
 wire     adc_enable; 
 wire     tube_enable;
-wire 	   mhz1_enable;
+wire     mhz1_enable;
 
 //  CPU signals
 //  6502
@@ -189,8 +190,8 @@ wire    ttxt_g;
 wire    ttxt_b; 
 
 //  Must loop back output pins or keyboard won't work
-wire [3:0] keyb_column = sys_via_pa_out[3:0]; 
-wire [2:0] keyb_row = sys_via_pa_out[6:4]; 
+wire 	[3:0] keyb_column = sys_via_pa_out[3:0]; 
+wire 	[2:0] keyb_row = sys_via_pa_out[6:4]; 
 wire    keyb_out; 
 wire    keyb_int; 
 wire    keyb_break;
@@ -213,6 +214,11 @@ wire    shift_lock_led_n;
 wire    sound_ready;
 wire    [7:0] sound_di;
 wire    [7:0] sound_ao;
+
+// Music5000
+wire    [15:0] music5000_ao_l;
+wire    [15:0] music5000_ao_r;
+wire    [7:0] music5000_do;
 
 //  System VIA signals
 wire    [7:0] sys_via_do;
@@ -244,58 +250,58 @@ wire    user_via_ca2_oe;
 wire    [7:0] user_via_pa_in;
 wire    [7:0] user_via_pa_out;
 wire    [7:0] user_via_pa_oe;
-wire     user_via_cb1_in;
-wire     user_via_cb1_out;
-wire     user_via_cb1_oe;
-wire     user_via_cb2_in;
-wire     user_via_cb2_out;
-wire     user_via_cb2_oe;
-wire     [7:0] user_via_pb_in;
-wire     [7:0] user_via_pb_out;
-wire     [7:0] user_via_pb_oe;
+wire    user_via_cb1_in;
+wire    user_via_cb1_out;
+wire    user_via_cb1_oe;
+wire    user_via_cb2_in;
+wire    user_via_cb2_out;
+wire    user_via_cb2_oe;
+wire    [7:0] user_via_pb_in;
+wire    [7:0] user_via_pb_out;
+wire    [7:0] user_via_pb_oe;
 
 // 0xFE34 Access Control (Master)
-wire     [7:0] acccon = { acc_irr, acc_tst, acc_ifj, acc_itu, acc_y, acc_x, acc_e, acc_d };
-reg      acc_irr;
-reg      acc_tst;
-reg      acc_ifj;
-reg      acc_itu;
-reg      acc_y;
-reg      acc_x;
-reg      acc_e;
-reg      acc_d;
+wire    [7:0] acccon = { acc_irr, acc_tst, acc_ifj, acc_itu, acc_y, acc_x, acc_e, acc_d };
+reg     acc_irr;
+reg     acc_tst;
+reg     acc_ifj;
+reg     acc_itu;
+reg     acc_y;
+reg     acc_x;
+reg     acc_e;
+reg     acc_d;
 
-reg      vdu_op; // last opcode was 0xC000-0xDFFF
+reg     vdu_op; // last opcode was 0xC000-0xDFFF
 
 // Master Real Time Clock / CMOS RAM
-wire     [7:0] rtc_adi;
-wire     [7:0] rtc_do;
-wire     rtc_ce;
-wire     rtc_r_nw;
-wire     rtc_as;
-wire     rtc_ds;
+wire    [7:0] rtc_adi;
+wire    [7:0] rtc_do;
+wire    rtc_ce;
+wire    rtc_r_nw;
+wire    rtc_as;
+wire    rtc_ds;
 
 // SERPROC
-wire     serproc_rx_clk_en;
-wire     serproc_tx_clk_en;
-wire     serproc_cts_n;
-wire     serproc_dcd_n;
-wire     serproc_rts_n;
-wire     serproc_rx;
-wire     serproc_tx;
+wire    serproc_rx_clk_en;
+wire    serproc_tx_clk_en;
+wire    serproc_cts_n;
+wire    serproc_dcd_n;
+wire    serproc_rts_n;
+wire    serproc_rx;
+wire    serproc_tx;
 
 // ACIA
-wire     [7:0] acia_do;
-wire     acia_irq_n;
+wire    [7:0] acia_do;
+wire    acia_irq_n;
 
 // FDC1770
-wire     fdc_irq;
-wire     fdc_drq;
-wire     [7:0] fdc_do;
-reg      [3:0] floppy_drive;
-reg      floppy_side;
-reg      floppy_density;
-reg      floppy_reset;
+wire    fdc_irq;
+wire    fdc_drq;
+wire    [7:0] fdc_do;
+reg     [3:0] floppy_drive;
+reg     floppy_side;
+reg     floppy_density;
+reg     floppy_reset;
 
 // MMC
 // SDCLK is driven from either PB1 or CB1 depending on the SR Mode
@@ -320,8 +326,9 @@ clocks CLOCKS(
 	.clk_48m			( CLK48M_I	), // master clock
 	.reset_n			( reset_n	),
 	
-	.vid_clken		( VIDEO_CLKEN		),
+	.vid_clken		( VIDEO_CLKEN	),
 	
+	.mhz6_clken		( mhz6_clken	),
 	.mhz4_clken		( mhz4_clken	),
 	.mhz2_clken		( mhz2_clken	),
 	.mhz1_clken		( mhz1_clken	),
@@ -330,7 +337,7 @@ clocks CLOCKS(
 
 	.cpu_cycle		( cpu_cycle		),
 	.cpu_clken		( cpu_clken		),
-	.cpu_phi0     ( cpu_phi0    ),
+	.cpu_phi0		( cpu_phi0    ),
 
 	.ttxt_clken		( ttxt_clken	),
 	.ttxt_clkenx2	( ttxt_clkenx2	),
@@ -425,7 +432,7 @@ via6522 SYS_VIA (
 	 .data_in     (cpu_do),
 	 .data_out    (sys_via_do),
 
-    //-- pio --
+	 //-- pio --
 	 .port_a_i    (sys_via_pa_in),
 	 .port_a_o    (sys_via_pa_out),
 	 .port_a_t    (sys_via_pa_oe),
@@ -434,7 +441,7 @@ via6522 SYS_VIA (
 	 .port_b_o    (sys_via_pb_out),
 	 .port_b_t    (sys_via_pb_oe),
 
-    //-- handshake pins
+	 //-- handshake pins
 	 .ca1_i       (sys_via_ca1_in),
 
 	 .ca2_i       (sys_via_ca2_in),
@@ -494,19 +501,19 @@ via6522 USER_VIA (
 //  Keyboard	
 keyboard KEYB (	
 
-	 .CLOCK			( CLK48M_I		),
-	 .nRESET			( ~RESET_I		),
-	 .CLKEN_1MHZ	( mhz1_clken	),
-	 .PS2_CLK		( PS2_CLK		),
-	 .PS2_DATA		( PS2_DAT		),
-	 .AUTOSCAN		( keyb_enable_n),
-	 .COLUMN			( keyb_column	),
-	 .ROW				( keyb_row		),
-	 .KEYPRESS		( keyb_out		),
-	 .INT				( keyb_int		),
-	 .SHIFT        ( SHIFT        ),
-	 .BREAK_OUT		( keyb_break	),
-	 .DIP_SWITCH	( DIP_SWITCH	)
+	 .CLOCK       ( CLK48M_I		),
+	 .nRESET      ( ~RESET_I		),
+	 .CLKEN_1MHZ  ( mhz1_clken	),
+	 .PS2_CLK     ( PS2_CLK		),
+	 .PS2_DATA    ( PS2_DAT		),
+	 .AUTOSCAN    ( keyb_enable_n),
+	 .COLUMN      ( keyb_column	),
+	 .ROW         ( keyb_row		),
+	 .KEYPRESS    ( keyb_out		),
+	 .INT         ( keyb_int		),
+	 .SHIFT	      ( SHIFT        ),
+	 .BREAK_OUT   ( keyb_break	),
+	 .DIP_SWITCH  ( DIP_SWITCH	)
 );
 
 // sync keyboard reset
@@ -574,12 +581,29 @@ sn76489_top SOUND (
 		 .clock_i		( CLK48M_I		),
 		 .clock_en_i	( mhz4_clken	),
 		 .res_n_i		( reset_n		),
-		 .ce_n_i			( 1'b 0			),
-		 .we_n_i			( sound_enable_n	),
+		 .ce_n_i		( 1'b 0			),
+		 .we_n_i		( sound_enable_n	),
 		 .ready_o		( sound_ready	),
-		 .d_i				( sound_di		),
-		 .aout_o			( sound_ao		)
+		 .d_i			( sound_di		),
+		 .aout_o		( sound_ao		)
 );
+
+Music5000 Music5000 (
+	.clk        ( CLK48M_I     ),
+	.clken      ( mhz1_clken   ),
+	.clk6       ( CLK48M_I     ),
+	.clk6en     ( mhz6_clken   ),
+	.rnw        ( cpu_r_nw     ),
+	.rst_n      ( reset_n      ),
+	.pgfc_n     ( ~io_fred     ),
+	.pgfd_n     ( ~io_jim      ),
+	.a          ( cpu_a[7:0]   ),
+	.din        ( cpu_do       ),
+	.dout       ( music5000_do ),
+	.audio_l    ( music5000_ao_l ),
+	.audio_r    ( music5000_ao_r )
+);
+
 `endif
 
 vidproc VIDEO_ULA (
@@ -595,16 +619,16 @@ vidproc VIDEO_ULA (
 		.DISEN(vidproc_disen),
 		.CURSOR(crtc_cursor),
 
-		.R_IN		( ttxt_r		),
-		.G_IN		( ttxt_g		),
-		.B_IN		( ttxt_b		),
+		.R_IN   ( ttxt_r		),
+		.G_IN   ( ttxt_g		),
+		.B_IN   ( ttxt_b		),
 
-		.R			( VIDEO_R	),
-		.G			( VIDEO_G	),
-		.B			( VIDEO_B ),
+		.R      ( VIDEO_R	),
+		.G      ( VIDEO_G	),
+		.B      ( VIDEO_B	),
 
-		.DE     ( crtc_de ),
-		.BLANK  ( vidproc_blank )
+		.DE     ( crtc_de	),
+		.BLANK  ( vidproc_blank	)
 );
 
 saa5050 TELETEXT (
@@ -806,7 +830,7 @@ always @(posedge CLK48M_I) begin
 	end else if (cpu_clken) begin
 		// FE24 Drive control register
 		if (fdcon_enable & ~cpu_r_nw) begin
-			floppy_drive <= { 3'b111, ~cpu_do[0] };
+			floppy_drive <= { 2'b11, ~cpu_do[1:0] };
 			floppy_reset <= cpu_do[2];
 			floppy_side <= ~cpu_do[4];
 			floppy_density <= cpu_do[5];
@@ -815,47 +839,39 @@ always @(posedge CLK48M_I) begin
 end
 
 //  Address translation logic for calculation of display address
-always @(crtc_ma or crtc_ra or disp_addr_offs)
-   begin : process_3
+always @(crtc_ma or crtc_ra or disp_addr_offs) begin : process_3
    if (crtc_ma[12] === 1'b 0)
       begin
-
-//  No adjustment
-      process_3_aa = crtc_ma[11:8];   
-
-//  Address adjusted according to screen mode to compensate for
-//  wrap at 0x8000.
+          //  No adjustment
+          process_3_aa = crtc_ma[11:8];   
       end
    else
-      begin
-      case (disp_addr_offs)
-      2'b 00:
-         begin
-
-//  Mode 3 - restart at 0x4000
-         process_3_aa = crtc_ma[11:8] + 4'd8;
-         end
-      2'b 01:
-         begin
-
-//  Mode 6 - restart at 0x6000
-         process_3_aa = crtc_ma[11:8] + 4'd12;
-         end
-      2'b 10:
-         begin
-
-//  Mode 0,1,2 - restart at 0x3000
-         process_3_aa = crtc_ma[11:8] + 4'd6;
-         end
-      2'b 11:
-         begin
-
-//  Mode 4,5 - restart at 0x5800
-         process_3_aa = crtc_ma[11:8] + 4'd11;
-         end
-      default:
-         ;
-      endcase
+	  begin
+         //  Address adjusted according to screen mode to compensate for
+         //  wrap at 0x8000.
+         case (disp_addr_offs)
+            2'b 00:
+            begin
+               //  Mode 3 - restart at 0x4000
+               process_3_aa = crtc_ma[11:8] + 4'd8;
+            end
+            2'b 01:
+            begin
+               //  Mode 6 - restart at 0x6000
+               process_3_aa = crtc_ma[11:8] + 4'd12;
+            end
+            2'b 10:
+            begin
+               //  Mode 0,1,2 - restart at 0x3000
+               process_3_aa = crtc_ma[11:8] + 4'd6;
+            end
+            2'b 11:
+            begin
+               //  Mode 4,5 - restart at 0x5800
+               process_3_aa = crtc_ma[11:8] + 4'd11;
+            end
+            default: ;
+         endcase
       end
 
       display_a = crtc_ma[13] ? 
@@ -864,8 +880,8 @@ always @(crtc_ma or crtc_ra or disp_addr_offs)
    end
 
 // SOUND 
-assign AUDIO_L = {sound_ao, 8'b00000000};
-assign AUDIO_R = {sound_ao, 8'b00000000};
+assign AUDIO_L = {2'b00, sound_ao, 6'b000000} + {~music5000_ao_l[15], music5000_ao_l[14:0]};
+assign AUDIO_R = {2'b00, sound_ao, 6'b000000} + {~music5000_ao_r[15], music5000_ao_r[14:0]};
 
 //  VIDPROC
 assign vidproc_invert_n = 1'b 1; 
@@ -902,6 +918,7 @@ assign cpu_di = ram_enable ? MEM_DI :
 	acccon_enable ? acccon :
 	(romsel_enable & master) ? romsel :
 	fdc_enable ? fdc_do :
+	io_jim ? music5000_do :
 	//tube_enable === 1'b 1 ? tube_do : 
 	//adlc_enable === 1'b 1 ? bbcddr_out :
 	8'd0;
