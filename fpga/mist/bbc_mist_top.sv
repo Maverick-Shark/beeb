@@ -185,22 +185,26 @@ assign LED = ~loader_active;
 // it to control the menu on the OSD 
 parameter CONF_STR = {
         "BBC;ROM;",
+        "S0U,VHD,Mount VHD;",
         "S1U,SSDDSD,Mount Disk 0;",
         "S2U,SSDDSD,Mount Disk 1;",
-		`SEP
+        `SEP
         "O12,Scanlines,Off,25%,50%,75%;",
         "O3,Joystick Swap,Off,On;",
         "O4,Mode,Model B,Master;",
         "O5,ROM mapping,High,Low;",
         "O6,Auto boot,Off,On;",
 `ifndef USE_EXPANSION
-		`SEP
+        `SEP
         "O7,Userport,Tape,UART;",
 `endif
- 		`SEP
-		"R64,Save CMOS;",
+`ifdef TUBE
+        "O89,Tube Co-Pro,Disabled,4 MHz,8 MHz,16 MHz;",
+`endif
+        `SEP
+        "R64,Save CMOS;",
         "T0,Reset;",
-		"V,v",`BUILD_DATE
+        "V,v",`BUILD_DATE
 };
 
 wire [1:0] scanlines = status[2:1];
@@ -209,39 +213,49 @@ wire       model = status[4];
 wire       rommap = status[5];
 wire       autoboot = status[6];
 wire       uart_en = status[7];
+`ifdef TUBE
+wire [1:0] tube = status[9:8];
+`else
+wire [1:0] tube = 0;
+`endif
 
 // generated clocks
-wire clk_48m /* synthesis keep */ ;
+wire       clk_48m /* synthesis keep */ ;
 
-wire pll_ready;
+wire       pll_ready;
 
 // core's raw video 
-wire 			core_r, core_g, core_b, core_hs, core_vs;   
-wire			core_clken;
+wire       core_r, core_g, core_b, core_hs, core_vs;   
+wire       core_clken;
 
 // memory bus signals.
 wire [15:0] mem_adr;
-wire [7:0]  mem_romsel;
+wire  [7:0] mem_romsel;
 wire        shadow_ram;
 wire        shadow_vid;
 wire        mem_acc_y;
 
-wire [7:0]  mem_di;
-wire [7:0]  rom_do;
-wire [7:0]  ram_do;
+wire  [7:0] mem_di;
+wire  [7:0] rom_do;
+wire  [7:0] ram_do;
 
-wire [7:0]  mem_do;
+wire  [7:0] mem_do;
 wire        mem_we;
 wire        mem_sync;
 wire        phi0;
+
+wire [15:0] tube_ram_addr;
+wire  [7:0] tube_ram_data_in;
+wire  [7:0] tube_ram_data_out;
+wire        tube_ram_wr;
 
 // core's raw audio 
 wire [15:0]	coreaud_l, coreaud_r;
 
 // user io
-wire [7:0] status;
-wire [1:0] buttons;
-wire [1:0] switches;
+wire [63:0] status;
+wire  [1:0] buttons;
+wire  [1:0] switches;
 
 wire        ps2_clk;
 wire        ps2_dat;
@@ -260,7 +274,7 @@ clockgen CLOCKS(
 `else
 	.inclk0	( CLOCK_27		),
 `endif
-	.c0		( clk_48m		),
+	.c0     ( clk_48m		),
 	.locked	( pll_ready		)  // pll locked output
 );
 
@@ -505,7 +519,6 @@ wire  [7:0] sd_din_fdc;
 wire img_ds = ioctl_index[7:6] == 1;
 
 bbc BBC(
-
 	.CLK48M_I   ( clk_48m       ),
 	.RESET_I    ( reset         ),
 
@@ -572,13 +585,26 @@ bbc BBC(
 	.sd_dout        ( sd_dout        ),
 	.sd_din         ( sd_din_fdc     ),
 	.sd_dout_strobe ( sd_dout_strobe ),
+
 	// CMOS RAM
 	.RTC            ( RTC            ),
 	.cmos_addr      ( ioctl_addr[6:0]),
 	.cmos_we        ( ioctl_we & loader_active & ioctl_index == 8'hff ),
 	.cmos_di        ( ioctl_data     ),
-	.cmos_do        ( ioctl_din      )
+	.cmos_do        ( ioctl_din      ),
+
+	.tube_cfg       ( tube           ),
+	.tube_ram_addr  ( tube_ram_addr  ),
+	.tube_ram_data_in ( tube_ram_data_in ),
+	.tube_ram_data_out( tube_ram_data_out ),
+	.tube_ram_wr    ( tube_ram_wr    )
 );
+
+reg [7:0] tube_ram[65536];
+always @(posedge clk_48m) begin
+	if (tube_ram_wr) tube_ram[tube_ram_addr] <= tube_ram_data_in;
+	tube_ram_data_out <= tube_ram[tube_ram_addr];
+end
 
 assign SDRAM_CKE = 1'b1;
 wire sdram_ready;

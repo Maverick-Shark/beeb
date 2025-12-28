@@ -10,7 +10,7 @@ module bbc(
 	output      HSYNC,
 	output      VSYNC,
 
-	output      VIDEO_CLKEN, 
+	output      VIDEO_CLKEN,
 	output      VIDEO_R,
 	output      VIDEO_G,
 	output      VIDEO_B,
@@ -20,9 +20,9 @@ module bbc(
 	// RAM Interface (CPU)
 	output [15:0] MEM_ADR,
 	output        MEM_WE,
-	output [7:0]  MEM_DO,
-	input  [7:0]  MEM_DI,
-	output [7:0]  ROMSEL,
+	output  [7:0] MEM_DO,
+	input   [7:0] MEM_DI,
+	output  [7:0] ROMSEL,
 	output        SHADOW_RAM,
 	output        SHADOW_VID,
 	output        ACC_Y,
@@ -35,8 +35,8 @@ module bbc(
 	input         PS2_DAT,
 
 	// audio signal.
-	output [15:0]	AUDIO_L,
-	output [15:0]	AUDIO_R,
+	output [15:0] AUDIO_L,
+	output [15:0] AUDIO_R,
 
 	// externally pressed "shift" key for autoboot
 	input         SHIFT,
@@ -47,14 +47,14 @@ module bbc(
 	input         SDMISO,
 
 	// analog joystick input 
-	input [1:0] 	joy_but,
-	input [7:0] 	joy0_axis0,
-	input [7:0] 	joy0_axis1,
-	input [7:0] 	joy1_axis0,
-	input [7:0] 	joy1_axis1,
+	input   [1:0] joy_but,
+	input   [7:0] joy0_axis0,
+	input   [7:0] joy0_axis1,
+	input   [7:0] joy1_axis0,
+	input   [7:0] joy1_axis1,
 
 	// boot settings
-	input [7:0] 	DIP_SWITCH,
+	input   [7:0] DIP_SWITCH,
 
 	//FDC signals
 	input   [1:0] img_mounted, // signaling that new image has been mounted
@@ -75,6 +75,13 @@ module bbc(
 	input         cmos_we,
 	input   [7:0] cmos_di,
 	output  [7:0] cmos_do,
+
+	input   [1:0] tube_cfg,
+	// Co-proc RAM
+	output [15:0] tube_ram_addr,
+	output  [7:0] tube_ram_data_in,
+	input   [7:0] tube_ram_data_out,
+	output        tube_ram_wr,
 
 	//Serial port
 	input         RS232_CTS,
@@ -97,22 +104,22 @@ assign SHADOW_VID = acc_d;
 wire   ram_we;
 
 //  ROM select latch
-reg  [7:0] romsel;
+reg    [7:0] romsel;
 
 // clock enable signals
 
-wire mhz6_clken;
-wire mhz4_clken;
-wire mhz2_clken;
-wire mhz1_clken;
+wire    mhz6_clken;
+wire    mhz4_clken;
+wire    mhz2_clken;
+wire    mhz1_clken;
 
-wire ttxt_clken;
-wire ttxt_clkenx2;
-wire tube_clken;
+wire    ttxt_clken;
+wire    ttxt_clkenx2;
+wire    tube_clken;
 
-wire cpu_clken;
-wire cpu_cycle;
-wire cpu_phi0;
+wire    cpu_clken;
+wire    cpu_cycle;
+wire    cpu_phi0;
 
 // decode signals
 wire    ddr_enable;
@@ -126,21 +133,22 @@ wire    io_jim;
 wire    io_sheila; 
 
 // SHEILA
-wire     crtc_enable; 
-wire     acia_enable; 
-wire     serproc_enable; 
-wire     vidproc_enable; 
-wire     romsel_enable; 
-wire     acccon_enable; 
-wire     sys_via_enable; 
-wire     user_via_enable; 
-wire     fddc_enable;
-wire     fdc_enable;
-wire     fdcon_enable; 
-wire     adlc_enable; 
-wire     adc_enable; 
-wire     tube_enable;
-wire     mhz1_enable;
+wire    crtc_enable; 
+wire    acia_enable; 
+wire    serproc_enable; 
+wire    vidproc_enable; 
+wire    romsel_enable; 
+wire    acccon_enable; 
+wire    sys_via_enable; 
+wire    user_via_enable; 
+wire    fddc_enable;
+wire    fdc_enable;
+wire    fdcon_enable; 
+wire    adlc_enable; 
+wire    adc_enable; 
+wire    tube_enable;
+wire    mhz1_enable;
+wire    int_tube_enable;
 
 //  CPU signals
 //  6502
@@ -154,7 +162,7 @@ wire    cpu_r_nw;
 wire    cpu_we; 
 wire    cpu_sync;
 
-wire    [23:0] cpu_a; 
+wire   [23:0] cpu_a; 
 wire    [7:0] cpu_di; 
 wire    [7:0] cpu_do; 
 
@@ -190,8 +198,8 @@ wire    ttxt_g;
 wire    ttxt_b; 
 
 //  Must loop back output pins or keyboard won't work
-wire 	[3:0] keyb_column = sys_via_pa_out[3:0]; 
-wire 	[2:0] keyb_row = sys_via_pa_out[6:4]; 
+wire    [3:0] keyb_column = sys_via_pa_out[3:0]; 
+wire    [2:0] keyb_row = sys_via_pa_out[6:4]; 
 wire    keyb_out; 
 wire    keyb_int; 
 wire    keyb_break;
@@ -315,6 +323,9 @@ assign SDMOSI = user_via_pb_oe[0] ? user_via_pb_out[0] : 1'b1;
 assign user_via_cb2_in = SDMISO;
 assign SDSS = 0;
 
+// Coproc
+wire    [7:0] tube_do;
+
 // calulation for display address
 
 reg     [3:0]  process_3_aa; 
@@ -323,9 +334,9 @@ reg     [3:0]  process_3_aa;
 
 clocks CLOCKS(
 
-	.clk_48m			( CLK48M_I	), // master clock
-	.reset_n			( reset_n	),
-	
+	.clk_48m		( CLK48M_I		), // master clock
+	.reset_n		( reset_n		),
+
 	.vid_clken		( VIDEO_CLKEN	),
 	
 	.mhz6_clken		( mhz6_clken	),
@@ -333,16 +344,17 @@ clocks CLOCKS(
 	.mhz2_clken		( mhz2_clken	),
 	.mhz1_clken		( mhz1_clken	),
 
-	.mhz1_enable	( mhz1_enable	),
+	.mhz1_enable 	( mhz1_enable	),
 
-	.cpu_cycle		( cpu_cycle		),
-	.cpu_clken		( cpu_clken		),
-	.cpu_phi0		( cpu_phi0    ),
+	.cpu_cycle  	( cpu_cycle		),
+	.cpu_clken  	( cpu_clken		),
+	.cpu_phi0   	( cpu_phi0		),
 
-	.ttxt_clken		( ttxt_clken	),
+	.ttxt_clken 	( ttxt_clken	),
 	.ttxt_clkenx2	( ttxt_clkenx2	),
 
-	.tube_clken		( tube_clken	)
+	.tube_cfg   	( tube_cfg		),
+	.tube_clken 	( tube_clken	)
 );
 
 address_decode ADDRDECODE(
@@ -372,6 +384,8 @@ address_decode ADDRDECODE(
 	.tube_enable(tube_enable),
 	.mhz1_enable(mhz1_enable)
 );
+
+assign int_tube_enable = |tube_cfg & (master ? (acc_itu & tube_enable) : tube_enable);
 
 wire  [7:0] cpu6502_do;
 wire [15:0] cpu6502_a;
@@ -471,7 +485,7 @@ via6522 USER_VIA (
 	 .data_in     (cpu_do),
 	 .data_out    (user_via_do),
 
-    //-- pio --
+	 //-- pio --
 	 .port_a_i    (user_via_pa_in),
 	 .port_a_o    (user_via_pa_out),
 	 .port_a_t    (user_via_pa_oe),
@@ -480,7 +494,7 @@ via6522 USER_VIA (
 	 .port_b_o    (user_via_pb_out),
 	 .port_b_t    (user_via_pb_oe),
 
-    //-- handshake pins
+	 //-- handshake pins
 	 .ca1_i       (user_via_ca1_in),
 
 	 .ca2_i       (user_via_ca2_in),
@@ -501,17 +515,17 @@ via6522 USER_VIA (
 //  Keyboard	
 keyboard KEYB (	
 
-	 .CLOCK       ( CLK48M_I		),
-	 .nRESET      ( ~RESET_I		),
+	 .CLOCK       ( CLK48M_I	),
+	 .nRESET      ( ~RESET_I	),
 	 .CLKEN_1MHZ  ( mhz1_clken	),
 	 .PS2_CLK     ( PS2_CLK		),
 	 .PS2_DATA    ( PS2_DAT		),
 	 .AUTOSCAN    ( keyb_enable_n),
 	 .COLUMN      ( keyb_column	),
-	 .ROW         ( keyb_row		),
-	 .KEYPRESS    ( keyb_out		),
-	 .INT         ( keyb_int		),
-	 .SHIFT	      ( SHIFT        ),
+	 .ROW         ( keyb_row	),
+	 .KEYPRESS    ( keyb_out	),
+	 .INT         ( keyb_int	),
+	 .SHIFT	      ( SHIFT		),
 	 .BREAK_OUT   ( keyb_break	),
 	 .DIP_SWITCH  ( DIP_SWITCH	)
 );
@@ -578,14 +592,14 @@ UM6845R CRTC (
 // no sound in the simulator.
 `ifndef SIM
 sn76489_top SOUND (
-		 .clock_i		( CLK48M_I		),
-		 .clock_en_i	( mhz4_clken	),
-		 .res_n_i		( reset_n		),
-		 .ce_n_i		( 1'b 0			),
-		 .we_n_i		( sound_enable_n	),
-		 .ready_o		( sound_ready	),
-		 .d_i			( sound_di		),
-		 .aout_o		( sound_ao		)
+	 .clock_i   	( CLK48M_I		),
+	 .clock_en_i 	( mhz4_clken	),
+	 .res_n_i   	( reset_n		),
+	 .ce_n_i    	( 1'b 0			),
+	 .we_n_i    	( sound_enable_n),
+	 .ready_o   	( sound_ready	),
+	 .d_i       	( sound_di		),
+	 .aout_o    	( sound_ao		)
 );
 
 Music5000 Music5000 (
@@ -606,29 +620,52 @@ Music5000 Music5000 (
 
 `endif
 
+wire tube_cs_b = ~(int_tube_enable & cpu_clken);
+
+CoPro6502 copro1 (
+   .h_clk      ( CLK48M_I     ),
+   .h_cs_b     ( tube_cs_b    ),
+   .h_rdnw     ( cpu_r_nw     ),
+   .h_addr     ( cpu_a[2:0]   ),
+   .h_data_in  ( cpu_do       ),
+   .h_data_out ( tube_do      ),
+   .h_rst_b    ( reset_n      ),
+   .h_irq_b    ( ),
+   //Parasite
+   .clk_cpu    ( CLK48M_I     ),
+   .cpu_clken  ( tube_clken   ),
+   // External RAM
+   .ram_addr   ( tube_ram_addr ),
+   .ram_data_in( tube_ram_data_in ),
+   .ram_data_out(tube_ram_data_out),
+   .ram_wr     ( tube_ram_wr   ),
+   // Test signals for debugging
+   .test       ( )
+);
+
 vidproc VIDEO_ULA (
-		.CLOCK(CLK48M_I),
-		.CLKEN(VIDEO_CLKEN),
-		.nRESET(reset_n),
-		.CLKEN_CRTC(crtc_clken),
-		.ENABLE(vidproc_enable),
-		.A0(cpu_a[0]),
-		.DI_CPU(cpu_do),
-		.DI_RAM(MEM_DI[7:0]),
-		.nINVERT(vidproc_invert_n),
-		.DISEN(vidproc_disen),
-		.CURSOR(crtc_cursor),
+	 .CLOCK  (CLK48M_I),
+	 .CLKEN  (VIDEO_CLKEN),
+	 .nRESET (reset_n),
+	 .CLKEN_CRTC(crtc_clken),
+	 .ENABLE (vidproc_enable),
+	 .A0     (cpu_a[0]),
+	 .DI_CPU (cpu_do),
+	 .DI_RAM (MEM_DI[7:0]),
+	 .nINVERT(vidproc_invert_n),
+	 .DISEN  (vidproc_disen),
+	 .CURSOR (crtc_cursor),
 
-		.R_IN   ( ttxt_r		),
-		.G_IN   ( ttxt_g		),
-		.B_IN   ( ttxt_b		),
+	 .R_IN   ( ttxt_r	),
+	 .G_IN   ( ttxt_g	),
+	 .B_IN   ( ttxt_b	),
 
-		.R      ( VIDEO_R	),
-		.G      ( VIDEO_G	),
-		.B      ( VIDEO_B	),
+	 .R      ( VIDEO_R	),
+	 .G      ( VIDEO_G	),
+	 .B      ( VIDEO_B	),
 
-		.DE     ( crtc_de	),
-		.BLANK  ( vidproc_blank	)
+	 .DE     ( crtc_de	),
+	 .BLANK  ( vidproc_blank)
 );
 
 saa5050 TELETEXT (
@@ -843,10 +880,10 @@ always @(crtc_ma or crtc_ra or disp_addr_offs) begin : process_3
    if (crtc_ma[12] === 1'b 0)
       begin
           //  No adjustment
-          process_3_aa = crtc_ma[11:8];   
+          process_3_aa = crtc_ma[11:8];
       end
    else
-	  begin
+      begin
          //  Address adjusted according to screen mode to compensate for
          //  wrap at 0x8000.
          case (disp_addr_offs)
@@ -874,7 +911,7 @@ always @(crtc_ma or crtc_ra or disp_addr_offs) begin : process_3
          endcase
       end
 
-      display_a = crtc_ma[13] ? 
+      display_a = crtc_ma[13] ?
         {process_3_aa[3], 4'b 1111, crtc_ma[9:0]} :       // TTX VDU
         {process_3_aa[3:0], crtc_ma[7:0], crtc_ra[2:0]};  // HI RES
    end
@@ -919,8 +956,10 @@ assign cpu_di = ram_enable ? MEM_DI :
 	(romsel_enable & master) ? romsel :
 	fdc_enable ? fdc_do :
 	io_jim ? music5000_do :
-	//tube_enable === 1'b 1 ? tube_do : 
+	int_tube_enable ? tube_do : 
 	//adlc_enable === 1'b 1 ? bbcddr_out :
+	io_sheila ? 8'b11111110 :
+	(io_jim | io_fred) ? 8'b11111111 :
 	8'd0;
 
 //  un-decoded locations are pulled down by RP1
