@@ -364,7 +364,8 @@ set_global_assignment -name VERILOG_FILE build_id.v
 set_global_assignment -name QIP_FILE ../../rtl/bbc.qip
 set_global_assignment -name VERILOG_FILE ../rtl/sigma_delta_dac.v
 set_global_assignment -name VERILOG_FILE ../rtl/audio.v
-set_global_assignment -name SDC_FILE bbc_mist.sdc
+#set_global_assignment -name SDC_FILE bbc_mist.sdc
+set_global_assignment -name SDC_FILE bbc_psd.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE bbc_mist_top.sv
 set_global_assignment -name QIP_FILE "mist-modules/mist.qip"
 set_global_assignment -name VERILOG_FILE sdram.v

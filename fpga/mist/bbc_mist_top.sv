@@ -184,7 +184,8 @@ assign LED = ~loader_active;
 // the configuration string is returned to the io controller to allow
 // it to control the menu on the OSD 
 parameter CONF_STR = {
-        "BBC;ROM;",
+        "BBC;;",
+        "F0,ROM,Load ROM;",
         "S0U,VHD,Mount VHD;",
         "S1U,SSDDSD,Mount Disk 0;",
         "S2U,SSDDSD,Mount Disk 1;",
@@ -194,12 +195,14 @@ parameter CONF_STR = {
         "O4,Mode,Model B,Master;",
         "O5,ROM mapping,High,Low;",
         "O6,Auto boot,Off,On;",
+        "OE,Default FS,MMFS,DFS;",                      // status[14]
 `ifndef USE_EXPANSION
         `SEP
         "O7,Userport,Tape,UART;",
 `endif
 `ifdef TUBE
         "O89,Tube Co-Pro,Disabled,4 MHz,8 MHz,16 MHz;",
+        "OAB,Acorn Z80,Off,v1.20 ROM,v1.21 ROM;",       // status[11:10]
 `endif
         `SEP
         "R64,Save CMOS;",
@@ -215,9 +218,14 @@ wire       autoboot = status[6];
 wire       uart_en = status[7];
 `ifdef TUBE
 wire [1:0] tube = status[9:8];
+wire [1:0] acorn_z80_cfg = status[11:10];  // 00=Off, 01=v1.20, 10=v2.00
+wire       acorn_z80_en  = |acorn_z80_cfg;
 `else
 wire [1:0] tube = 0;
+wire [1:0] acorn_z80_cfg = 2'b00;
+wire       acorn_z80_en  = 1'b0;
 `endif
+wire       default_fs = status[14];        // Master: 0=MMFS, 1=DFS
 
 // generated clocks
 wire       clk_48m /* synthesis keep */ ;
@@ -248,6 +256,12 @@ wire [15:0] tube_ram_addr;
 wire  [7:0] tube_ram_data_in;
 wire  [7:0] tube_ram_data_out;
 wire        tube_ram_wr;
+
+// Acorn Z80 RAM interface wires
+wire [15:0] z80_ram_addr;
+wire  [7:0] z80_ram_data_in;
+wire  [7:0] z80_ram_data_out;
+wire        z80_ram_wr;
 
 // core's raw audio 
 wire [15:0]	coreaud_l, coreaud_r;
@@ -371,13 +385,13 @@ user_io #(.STRLEN($size(CONF_STR)>>3), .FEATURES(32'h0 | (BIG_OSD << 13) | (HDMI
 	.sd_conf    	  ( sd_conf       ),
 	.sd_sdhc    	  ( sd_sdhc       ),
 	.sd_dout    	  ( sd_dout       ),
-	.sd_dout_strobe ( sd_dout_strobe),
+	.sd_dout_strobe	  ( sd_dout_strobe),
 	.sd_din     	  ( sd_din        ),
-	.sd_buff_addr   ( sd_buff_addr  ),
-	.sd_ack_conf    ( sd_ack_conf   ),
+	.sd_buff_addr     ( sd_buff_addr  ),
+	.sd_ack_conf      ( sd_ack_conf   ),
 
-	.img_mounted    ( img_mounted   ),
-	.img_size       ( img_size      ),
+	.img_mounted      ( img_mounted   ),
+	.img_size         ( img_size      ),
 
 	.ps2_kbd_clk	  ( ps2_clk       ), 
 	.ps2_kbd_data	  ( ps2_dat       )
@@ -431,7 +445,8 @@ always @(posedge clk_48m) begin
 		we_int <= 0;
 		loader_we <= we_int;
 		if (we_int) begin
-			loader_addr <= ioctl_addr + (ioctl_index == 0 ? 20'h80000 : { 7'b0000001, 4'ha, 14'h0 });
+			// loader_addr <= ioctl_addr + (ioctl_index == 0 ? 20'h80000 : { 7'b0000001, 4'ha, 14'h0 });
+			loader_addr <= ioctl_addr + 20'h80000;
 			loader_data <= ioctl_data;
 		end
 	end
@@ -477,13 +492,18 @@ wire user_via_cb1_in;
 wire user_via_cb2_in;
 
 // reset core whenever the user changes the rom mapping
-reg last_rom_map, last_model;
+//reg last_rom_map, last_model;   //, last_default_fs;
+reg last_rom_map, last_model, last_default_fs;
+reg [1:0] last_z80;
 reg [11:0] rom_map_counter = 12'h0;
 always @(posedge clk_48m) begin
-	last_rom_map <= rommap;
-	last_model <= model;
+	last_rom_map    <= rommap;          // keeping last state
+	last_model      <= model;
+	last_z80        <= acorn_z80_cfg;
+    last_default_fs <= default_fs;
 
-	if(last_rom_map != rommap || last_model != model)
+    //if(last_rom_map != rommap || last_model != model || last_z80 != acorn_z80_cfg) // || last_default_fs != default_fs)
+	if(last_rom_map != rommap || last_model != model || last_z80 != acorn_z80_cfg || last_default_fs != default_fs)
 		rom_map_counter <= 12'hfff;
 	else if(rom_map_counter != 0)
 		rom_map_counter <= rom_map_counter - 12'd1;
@@ -597,14 +617,31 @@ bbc BBC(
 	.tube_ram_addr  ( tube_ram_addr  ),
 	.tube_ram_data_in ( tube_ram_data_in ),
 	.tube_ram_data_out( tube_ram_data_out ),
-	.tube_ram_wr    ( tube_ram_wr    )
+	.tube_ram_wr    ( tube_ram_wr    ),
+
+	// Acorn Z80 Second Processor
+	.acorn_z80_cfg    ( acorn_z80_cfg      ),
+	.z80_ram_addr     ( z80_ram_addr       ),
+	.z80_ram_data_in  ( z80_ram_data_in    ),
+	.z80_ram_data_out ( z80_ram_data_out   ),
+	.z80_ram_wr       ( z80_ram_wr         )
 );
 
-reg [7:0] tube_ram[65536];
+// ── Shared 64KB BRAM for co-processors (CoPro6502 and Acorn Z80) ────
+// Only one co-processor is active at a time (selected via OSD).
+wire [15:0] copro_ram_addr_mux    = acorn_z80_en ? z80_ram_addr    : tube_ram_addr;
+wire  [7:0] copro_ram_data_in_mux = acorn_z80_en ? z80_ram_data_in : tube_ram_data_in;
+wire        copro_ram_wr_mux      = acorn_z80_en ? z80_ram_wr      : tube_ram_wr;
+wire  [7:0] copro_ram_dout;
+
+reg [7:0] copro_ram[0:65535];
 always @(posedge clk_48m) begin
-	if (tube_ram_wr) tube_ram[tube_ram_addr] <= tube_ram_data_in;
-	tube_ram_data_out <= tube_ram[tube_ram_addr];
+	if (copro_ram_wr_mux) copro_ram[copro_ram_addr_mux] <= copro_ram_data_in_mux;
+	copro_ram_dout <= copro_ram[copro_ram_addr_mux];
 end
+
+assign tube_ram_data_out  = copro_ram_dout;
+assign z80_ram_data_out   = copro_ram_dout;
 
 assign SDRAM_CKE = 1'b1;
 wire sdram_ready;
@@ -626,6 +663,13 @@ wire sideways_rom = sideways &
                              rommap?(mem_romsel[3:2] == 2'b00):(mem_romsel[3:2] == 2'b11);
 
 /*
+romsel=15  →  BASIC         (slot 4  →  SDRAM 0x90000)
+romsel=14  →  FS principal  (slot 5  →  SDRAM 0x94000)
+romsel=13  →  FS secundaria (slot 6  →  SDRAM 0x98000)
+romsel=12  →  otra          (slot 7  →  SDRAM 0x9C000)
+*/
+
+/*
  SDRAM map
  00000-07FFF Main RAM
  08000-08FFF MOS private RAM (Master)
@@ -641,9 +685,13 @@ wire [24:0] sdram_adr =
 	(cpu_ram | mos_ram) ? { shadow_ram, mem_adr }:      // ordinary RAM access: 0000-7FFF + 8000-8FFF (MOS Private RAM)
 	filing_ram ? { 3'b101, mem_adr[12:0] }:             // Filing system RAM: A000-BFFF
 	mos_rom ? { 4'h8, 1'b0, model, mem_adr[13:0] }:     // OS12 or MOS: 80000-87FFF
-	(sideways_rom && ~model) ? { 4'h9, mem_romsel[1:0], mem_adr[13:0] }: // Model B ROMs: 9xxxx
-	(sideways_rom &&  model) ? { 4'hA + mem_romsel[3:2], mem_romsel[1:0], mem_adr[13:0] }: // Master ROMs: A0000-DFFFF
-	{ 1'b1, mem_romsel[3:0], mem_adr[13:0] };          // sideways RAM access (page 4-5-6-7)
+	                                                    // Model B ROMs: 9xxxx
+	//(sideways_rom && ~model) ? { 4'h9, ~mem_romsel[1:0], mem_adr[13:0] }:
+	//(sideways_rom && ~model) ? { 4'h9, mem_romsel[1:0], mem_adr[13:0] }:
+	(sideways_rom && ~model) ? { 4'h9, mem_romsel[1], (mem_romsel[0] ^ (mem_romsel[1] & ~default_fs)), mem_adr[13:0] }:
+		                                                // Master ROMs: A0000-DFFFF
+	(sideways_rom &&  model) ? { 4'hA + mem_romsel[3:2], mem_romsel[1:0], mem_adr[13:0] }:
+	{ 1'b1, mem_romsel[3:0], mem_adr[13:0] };           // sideways RAM access (page 4-5-6-7)
 
 wire sdram_we = loader_active?loader_we:(mem_we && (cpu_ram || sideways_ram || mos_ram || filing_ram));
 

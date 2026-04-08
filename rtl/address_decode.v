@@ -103,8 +103,12 @@ assign io_sheila = cpu_a[15:8] == 8'hFE;
 
 //  The following IO regions are accessed at 1 MHz and hence will stall the
 //  CPU accordingly
+//assign mhz1_enable = io_fred | io_jim | adc_enable | sys_via_enable | 
+//      user_via_enable | serproc_enable | acia_enable | crtc_enable;
+// Fix fdc enable in both models
 assign mhz1_enable = io_fred | io_jim | adc_enable | sys_via_enable | 
-      user_via_enable | serproc_enable | acia_enable | crtc_enable; 
+      user_via_enable | serproc_enable | acia_enable | crtc_enable |
+      fdc_enable | fdcon_enable;
 
 //  SHEILA address demux
 //  All the system peripherals are mapped into this page as follows:
@@ -124,7 +128,9 @@ assign crtc_enable = io_sheila & (cpu_a[7:3] === 'd0);
 assign acia_enable = io_sheila & (cpu_a[7:3] === 'd1);
 
 assign serproc_enable   = io_sheila & ((cpu_a[7:4] === 'b0001 && ~master) || (cpu_a[7:3] === 'b00010 && master));
-assign vidproc_enable   = io_sheila & (cpu_a[7:4] === 'b0010) & (~master || cpu_a[3:2] == 'b00);
+//assign vidproc_enable = io_sheila & (cpu_a[7:4] === 'b0010) & (~master || cpu_a[3:2] == 'b00);
+// vidproc_enable: 0xFE20-0xFE23 in both models
+assign vidproc_enable   = io_sheila & (cpu_a[7:4] === 'b0010) & (cpu_a[3:2] == 'b00);
 assign romsel_enable    = io_sheila & ((cpu_a[7:4] === 'b0011 && ~master) || (cpu_a[7:2] === 'b001100 && master));
 assign acccon_enable    = io_sheila & master & cpu_a[7:2] === 'b001101;
 assign intoff_enable    = io_sheila & master & cpu_a[7:2] === 'b001110;
@@ -134,8 +140,11 @@ assign sys_via_enable   = io_sheila & (cpu_a[7:5] === 'b010);
 assign user_via_enable  = io_sheila & (cpu_a[7:5] === 'b011);
 
 assign fddc_enable      = io_sheila & ~master & (cpu_a[7:5] === 'b100);
-assign fdc_enable       = io_sheila & master & (cpu_a[7:3] === 'b00101);
-assign fdcon_enable     = io_sheila & master & (cpu_a[7:2] === 'b001001);
+// FIX: fdc_enable for Both Models, not only Master model
+//assign fdc_enable     = io_sheila & master & (cpu_a[7:3] === 'b00101);
+//assign fdcon_enable   = io_sheila & master & (cpu_a[7:2] === 'b001001);
+assign fdc_enable       = io_sheila & (cpu_a[7:3] === 'b00101);
+assign fdcon_enable     = io_sheila & (cpu_a[7:2] === 'b001001);
 
 assign adlc_enable      = io_sheila & (cpu_a[7:5] === 'b101);
 assign adc_enable       = io_sheila & ((cpu_a[7:5] === 'b110 && ~master) || (cpu_a[7:3] === 'b00011 && master));

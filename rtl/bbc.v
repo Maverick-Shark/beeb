@@ -77,11 +77,18 @@ module bbc(
 	output  [7:0] cmos_do,
 
 	input   [1:0] tube_cfg,
-	// Co-proc RAM
+	// Co-proc RAM (CoPro6502 / 65C102)
 	output [15:0] tube_ram_addr,
 	output  [7:0] tube_ram_data_in,
 	input   [7:0] tube_ram_data_out,
 	output        tube_ram_wr,
+
+	// ── Acorn Z80 Second Processor ──────────────────────────────
+	input   [1:0] acorn_z80_cfg,    // 00=Off, 01=v1.20, 10=v2.00
+	output [15:0] z80_ram_addr,
+	output  [7:0] z80_ram_data_in,
+	input   [7:0] z80_ram_data_out,
+	output        z80_ram_wr,
 
 	//Serial port
 	input         RS232_CTS,
@@ -325,13 +332,16 @@ assign SDSS = 0;
 
 // Coproc
 wire    [7:0] tube_do;
+wire    [7:0] acorn_z80_do;
 
 // calulation for display address
-
 reg     [3:0]  process_3_aa; 
 
-// Basic Clock Generation
+// Floppy FE24 NMI
+reg floppy_nmi_drq;   // bit 0 FE24: DRQ → NMI enable
+reg floppy_nmi_irq;   // bit 1 FE24: IRQ → NMI enable
 
+// Basic Clock Generation
 clocks CLOCKS(
 
 	.clk_48m		( CLK48M_I		), // master clock
@@ -385,7 +395,11 @@ address_decode ADDRDECODE(
 	.mhz1_enable(mhz1_enable)
 );
 
-assign int_tube_enable = |tube_cfg & (master ? (acc_itu & tube_enable) : tube_enable);
+wire acorn_z80_en = |acorn_z80_cfg;
+assign int_tube_enable = |tube_cfg & ~acorn_z80_en & (master ? (acc_itu & tube_enable) : tube_enable);
+
+// Acorn Z80 uses the standard Tube address range (&FEE0-&FEE7)
+wire acorn_z80_active = acorn_z80_en & tube_enable;
 
 wire  [7:0] cpu6502_do;
 wire [15:0] cpu6502_a;
@@ -643,6 +657,28 @@ CoPro6502 copro1 (
    .test       ( )
 );
 
+// Acorn Z80 Second Processor
+wire acorn_z80_cs_b = ~(acorn_z80_active & cpu_clken);
+
+CoProAcornZ80 copro_z80 (
+    .h_clk        ( CLK48M_I            ),
+    .h_cs_b       ( acorn_z80_cs_b      ),
+    .h_rdnw       ( cpu_r_nw            ),
+    .h_addr       ( cpu_a[2:0]          ),
+    .h_data_in    ( cpu_do              ),
+    .h_data_out   ( acorn_z80_do        ),
+    .h_rst_b      ( reset_n             ),
+    .h_irq_b      (                     ),
+    .clk_cpu      ( CLK48M_I            ),
+    .cpu_clken    ( mhz6_clken          ),
+    .rom_sel      ( acorn_z80_cfg[1]    ),
+    .ram_addr     ( z80_ram_addr        ),
+    .ram_data_in  ( z80_ram_data_in     ),
+    .ram_data_out ( z80_ram_data_out    ),
+    .ram_wr       ( z80_ram_wr          ),
+    .test         (                     )
+);
+
 vidproc VIDEO_ULA (
 	 .CLOCK  (CLK48M_I),
 	 .CLKEN  (VIDEO_CLKEN),
@@ -855,25 +891,30 @@ fdc1772 #(.INVERT_HEAD_RA(1'b1), .MODEL(0), .CLK_EN(16'd4000)) FDC1772 (
 //.floppy_inuse<->( floppy_inuse     ),
 	.floppy_side    ( floppy_side      ),
 //.floppy_density ( floppy_density   ),
-	.floppy_reset   ( floppy_reset     )
+	.floppy_reset   ( ~floppy_reset     )
 );
 
 // FDC Control Register (Master)
 always @(posedge CLK48M_I) begin 
-
 	if (!reset_n) begin
 		floppy_drive <= 4'b1111;
 		{ floppy_side, floppy_reset, floppy_density } <= 0;
+		floppy_nmi_drq <= 0;
+		floppy_nmi_irq <= 0;
 	end else if (cpu_clken) begin
 		// FE24 Drive control register
 		if (fdcon_enable & ~cpu_r_nw) begin
+			floppy_nmi_drq <= cpu_do[0];   // bit 0: DRQ NMI enable
+			floppy_nmi_irq <= cpu_do[1];   // bit 1: IRQ NMI enable
+			floppy_reset   <= cpu_do[2];
 			floppy_drive <= { 2'b11, ~cpu_do[1:0] };
-			floppy_reset <= cpu_do[2];
 			floppy_side <= ~cpu_do[4];
 			floppy_density <= cpu_do[5];
 		end
 	end
 end
+
+assign cpu_nmi_n = ~(fdc_irq & floppy_nmi_irq) & ~(fdc_drq & floppy_nmi_drq);
 
 //  Address translation logic for calculation of display address
 always @(crtc_ma or crtc_ra or disp_addr_offs) begin : process_3
@@ -956,15 +997,22 @@ assign cpu_di = ram_enable ? MEM_DI :
 	(romsel_enable & master) ? romsel :
 	fdc_enable ? fdc_do :
 	io_jim ? music5000_do :
-	int_tube_enable ? tube_do : 
+	// Acorn Z80 takes priority over CoPro6502 when active
+	(acorn_z80_active & cpu_clken) ? acorn_z80_do :
+	int_tube_enable ? tube_do :
 	//adlc_enable === 1'b 1 ? bbcddr_out :
-	io_sheila ? 8'b11111110 :
+	io_sheila ? 8'b11111110 :      // Sheila pull-up
 	(io_jim | io_fred) ? 8'b11111111 :
 	8'd0;
 
-//  un-decoded locations are pulled down by RP1
+//  un-decoded locations are pulled down by RP1 (connected to NMI)
 assign cpu_irq_n = ~sys_via_irq & ~user_via_irq & ~acc_irr & acia_irq_n; // & tube_irq_n;
 assign cpu_nmi_n = ~fdc_irq & ~fdc_drq;
+
+// FDC conected to IRQ (DFS ROMs):
+assign cpu_irq_n = ~sys_via_irq & ~user_via_irq & ~acc_irr & acia_irq_n 
+                   & ~fdc_irq & ~fdc_drq;
+assign cpu_nmi_n = 1'b1;
 
 // can we write to ram? Further decodig happens on top-level to deal with sideways ram etc
 assign ram_we = ~RESET_I & ~cpu_r_nw;
