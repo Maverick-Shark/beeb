@@ -335,13 +335,11 @@ wire    [7:0] tube_do;
 wire    [7:0] acorn_z80_do;
 
 // calulation for display address
+
 reg     [3:0]  process_3_aa; 
 
-// Floppy FE24 NMI
-reg floppy_nmi_drq;   // bit 0 FE24: DRQ → NMI enable
-reg floppy_nmi_irq;   // bit 1 FE24: IRQ → NMI enable
-
 // Basic Clock Generation
+
 clocks CLOCKS(
 
 	.clk_48m		( CLK48M_I		), // master clock
@@ -891,30 +889,25 @@ fdc1772 #(.INVERT_HEAD_RA(1'b1), .MODEL(0), .CLK_EN(16'd4000)) FDC1772 (
 //.floppy_inuse<->( floppy_inuse     ),
 	.floppy_side    ( floppy_side      ),
 //.floppy_density ( floppy_density   ),
-	.floppy_reset   ( ~floppy_reset     )
+	.floppy_reset   ( floppy_reset     )
 );
 
 // FDC Control Register (Master)
 always @(posedge CLK48M_I) begin 
+
 	if (!reset_n) begin
 		floppy_drive <= 4'b1111;
 		{ floppy_side, floppy_reset, floppy_density } <= 0;
-		floppy_nmi_drq <= 0;
-		floppy_nmi_irq <= 0;
 	end else if (cpu_clken) begin
 		// FE24 Drive control register
 		if (fdcon_enable & ~cpu_r_nw) begin
-			floppy_nmi_drq <= cpu_do[0];   // bit 0: DRQ NMI enable
-			floppy_nmi_irq <= cpu_do[1];   // bit 1: IRQ NMI enable
-			floppy_reset   <= cpu_do[2];
 			floppy_drive <= { 2'b11, ~cpu_do[1:0] };
+			floppy_reset <= cpu_do[2];
 			floppy_side <= ~cpu_do[4];
 			floppy_density <= cpu_do[5];
 		end
 	end
 end
-
-assign cpu_nmi_n = ~(fdc_irq & floppy_nmi_irq) & ~(fdc_drq & floppy_nmi_drq);
 
 //  Address translation logic for calculation of display address
 always @(crtc_ma or crtc_ra or disp_addr_offs) begin : process_3
@@ -1005,14 +998,9 @@ assign cpu_di = ram_enable ? MEM_DI :
 	(io_jim | io_fred) ? 8'b11111111 :
 	8'd0;
 
-//  un-decoded locations are pulled down by RP1 (connected to NMI)
+//  un-decoded locations are pulled down by RP1
 assign cpu_irq_n = ~sys_via_irq & ~user_via_irq & ~acc_irr & acia_irq_n; // & tube_irq_n;
 assign cpu_nmi_n = ~fdc_irq & ~fdc_drq;
-
-// FDC conected to IRQ (DFS ROMs):
-assign cpu_irq_n = ~sys_via_irq & ~user_via_irq & ~acc_irr & acia_irq_n 
-                   & ~fdc_irq & ~fdc_drq;
-assign cpu_nmi_n = 1'b1;
 
 // can we write to ram? Further decodig happens on top-level to deal with sideways ram etc
 assign ram_we = ~RESET_I & ~cpu_r_nw;
