@@ -1,9 +1,9 @@
-// CoProAcornZ80.v — DIAGNOSTIC VERSION
-// Forces R2 data_available=1 and break_type=0 to bypass host handshake.
-// Use this ONLY for testing. Remove DIAG_BYPASS_R2 for production.
+// CoProAcornZ80.v — Fixed version
+// Fixes:
+// 1. Removed DIAG_BYPASS_R2 hack that prevented real Tube handshake
+// 2. Fixed tube_p_cs_b to pulse once per Z80 I/O cycle (not multi-cycle)
 
 `timescale 1ns / 1ps
-`define DIAG_BYPASS_R2
 
 module CoProAcornZ80 (
     input        h_clk,
@@ -112,32 +112,28 @@ assign ram_addr    = z80_addr;
 wire [7:0] rom_data;
 wire [7:0] tube_p_data_out;
 
-`ifdef DIAG_BYPASS_R2
-// DIAGNOSTIC: Intercept R2 status/data reads to bypass host handshake.
-// R2 status (port 02h, p_addr=010): force bit7=1 (data available)
-// R2 data   (port 03h, p_addr=011): force 0x00 (soft break type)
-wire diag_r2_status = z80_io && !z80_rd_n && (z80_addr[2:0] == 3'h2);
-wire diag_r2_data   = z80_io && !z80_rd_n && (z80_addr[2:0] == 3'h3);
-
-assign z80_din =
-    z80_intack     ? 8'hFE           :
-    diag_r2_status ? 8'hFF           :  // DIAG: R2 always has data
-    diag_r2_data   ? 8'h00           :  // DIAG: break type = soft break
-    z80_io         ? tube_p_data_out :
-    rom_active     ? rom_data        :
-                     ram_data_out;
-`else
 assign z80_din =
     z80_intack ? 8'hFE           :
     z80_io     ? tube_p_data_out :
     rom_active ? rom_data        :
                  ram_data_out;
-`endif
 
 // =====================================================================
 // Tube ULA
 // =====================================================================
-wire tube_p_cs_b = ~(z80_io & cpu_clken);
+// The Z80 I/O cycle (with IOWait=1) holds IORQ_n low for multiple
+// cpu_clken cycles (T1 + Tw + T2). Without edge detection, the tube
+// would see multiple chip selects per I/O operation, consuming extra
+// bytes from the FIFO and corrupting the tube protocol.
+// Fix: detect the rising edge of z80_io so tube_p_cs_b pulses ONCE.
+reg z80_io_d;
+always @(posedge clk_cpu)
+    if (!RSTn_sync)
+        z80_io_d <= 1'b0;
+    else if (cpu_clken)
+        z80_io_d <= z80_io;
+
+wire tube_p_cs_b = ~(z80_io & ~z80_io_d & cpu_clken);
 
 tube inst_tube (
     .h_addr     ( h_addr          ),

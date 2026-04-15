@@ -139,12 +139,18 @@ assign inton_enable     = io_sheila & master & cpu_a[7:2] === 'b001111;
 assign sys_via_enable   = io_sheila & (cpu_a[7:5] === 'b010);
 assign user_via_enable  = io_sheila & (cpu_a[7:5] === 'b011);
 
+// FDC address decode for both models:
+// Model B:  FDC registers at FE84-FE87 (FE80 range, A[2]=1), control latch at FE80 (A[2:0]=000)
+// Master:   FDC registers at FE28-FE2F (cpu_a[7:3]=00101), control latch at FE24 (cpu_a[7:2]=001001)
 assign fddc_enable      = io_sheila & ~master & (cpu_a[7:5] === 'b100);
-// FIX: fdc_enable for Both Models, not only Master model
-//assign fdc_enable     = io_sheila & master & (cpu_a[7:3] === 'b00101);
-//assign fdcon_enable   = io_sheila & master & (cpu_a[7:2] === 'b001001);
-assign fdc_enable       = io_sheila & (cpu_a[7:3] === 'b00101);
-assign fdcon_enable     = io_sheila & (cpu_a[7:2] === 'b001001);
+assign fdc_enable       = io_sheila & (
+                            (master  & (cpu_a[7:3] === 'b00101)) |           // Master: FE28-FE2F
+                            (~master & (cpu_a[7:5] === 'b100) & cpu_a[2])    // Model B: FE84-FE87
+                          );
+assign fdcon_enable     = io_sheila & (
+                            (master  & (cpu_a[7:2] === 'b001001)) |          // Master: FE24-FE27
+                            (~master & (cpu_a[7:5] === 'b100) & (cpu_a[2:0] === 3'b000)) // Model B: FE80
+                          );
 
 assign adlc_enable      = io_sheila & (cpu_a[7:5] === 'b101);
 assign adc_enable       = io_sheila & ((cpu_a[7:5] === 'b110 && ~master) || (cpu_a[7:3] === 'b00011 && master));

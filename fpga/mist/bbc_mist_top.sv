@@ -657,16 +657,18 @@ wire filing_ram = (mem_adr[15:13] == 3'b110) & mem_acc_y;
 wire sideways_ram = sideways & (mem_romsel[3:2] == 2'b01);
 
 // Master: pages 0-3, 8-F
-// Model B: rommap is '1' of low mapping is selected in the menu
-wire sideways_rom = sideways &
+// Model B: rommap is '1' if low mapping is selected in the menu
+//          rommap selects which 4 slots are ROM; remaining non-RAM slots also
+//          go through ROM mapping so they read from initialized SDRAM (not random data)
+wire sideways_rom = sideways & (
                     model  ? (mem_romsel[3:2] == 2'b00 || mem_romsel[3]) :
-                             rommap?(mem_romsel[3:2] == 2'b00):(mem_romsel[3:2] == 2'b11);
+                             (rommap ? (mem_romsel[3:2] == 2'b00) : (mem_romsel[3:2] == 2'b11)));
 
 /*
-romsel=15  →  BASIC         (slot 4  →  SDRAM 0x90000)
-romsel=14  →  FS principal  (slot 5  →  SDRAM 0x94000)
-romsel=13  →  FS secundaria (slot 6  →  SDRAM 0x98000)
-romsel=12  →  otra          (slot 7  →  SDRAM 0x9C000)
+romsel=15  →  BASIC 2             (slot 4  →  SDRAM 0x90000)
+romsel=14  →  ARM v1.13c          (slot 5  →  SDRAM 0x94000)
+romsel=13  →  Model B MMFS v1.44  (slot 6  →  SDRAM 0x98000)
+romsel=12  →  Watford DDFS v1.54T (slot 7  →  SDRAM 0x9C000)
 */
 
 /*
@@ -685,10 +687,8 @@ wire [24:0] sdram_adr =
 	(cpu_ram | mos_ram) ? { shadow_ram, mem_adr }:      // ordinary RAM access: 0000-7FFF + 8000-8FFF (MOS Private RAM)
 	filing_ram ? { 3'b101, mem_adr[12:0] }:             // Filing system RAM: A000-BFFF
 	mos_rom ? { 4'h8, 1'b0, model, mem_adr[13:0] }:     // OS12 or MOS: 80000-87FFF
-	                                                    // Model B ROMs: 9xxxx
-	//(sideways_rom && ~model) ? { 4'h9, ~mem_romsel[1:0], mem_adr[13:0] }:
-	//(sideways_rom && ~model) ? { 4'h9, mem_romsel[1:0], mem_adr[13:0] }:
-	(sideways_rom && ~model) ? { 4'h9, mem_romsel[1], (mem_romsel[0] ^ (mem_romsel[1] & ~default_fs)), mem_adr[13:0] }:
+	                                                    // Model B ROMs: 9xxxx, direct romsel[1:0] mapping
+	(sideways_rom && ~model) ? { 4'h9, mem_romsel[1:0], mem_adr[13:0] }:
 		                                                // Master ROMs: A0000-DFFFF
 	(sideways_rom &&  model) ? { 4'hA + mem_romsel[3:2], mem_romsel[1:0], mem_adr[13:0] }:
 	{ 1'b1, mem_romsel[3:0], mem_adr[13:0] };           // sideways RAM access (page 4-5-6-7)

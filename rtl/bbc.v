@@ -855,8 +855,8 @@ end
 // Shadow RAM (Master): 0x3000-0x7fff
 assign SHADOW_RAM = (cpu_a[15:12] == 4'h3 || cpu_a[15:14] == 2'b01) && (acc_x | (acc_e & vdu_op & ~cpu_sync));
 
-// FDC (Master)
-fdc1772 #(.INVERT_HEAD_RA(1'b1), .MODEL(0), .CLK_EN(16'd4000)) FDC1772 (
+// FDC (WD1772 - used in both Model B DFS and Master)
+fdc1772 #(.INVERT_HEAD_RA(1'b1), .MODEL(2), .CLK_EN(16'd4000)) FDC1772 (
 
 	.clkcpu         ( CLK48M_I         ),
 	.clk8m_en       ( mhz4_clken       ),
@@ -884,27 +884,39 @@ fdc1772 #(.INVERT_HEAD_RA(1'b1), .MODEL(0), .CLK_EN(16'd4000)) FDC1772 (
 	.sd_din         ( sd_din           ),
 	.sd_dout_strobe ( sd_dout_strobe   ),
 
-	.floppy_drive   ( floppy_drive     ),
-//	.floppy_motor   ( !floppy_motor    ),
-//.floppy_inuse<->( floppy_inuse     ),
+	.floppy_drive   ( floppy_drive[1:0] ),
+	.floppy_motor   ( 1'b0             ),  // motor always on (no external motor control in BBC DFS)
 	.floppy_side    ( floppy_side      ),
-//.floppy_density ( floppy_density   ),
 	.floppy_reset   ( floppy_reset     )
 );
 
-// FDC Control Register (Master)
+// FDC Control Register
+// Model B (from ddfs_v2 schematic via 74LS174 latch):
+//   b[1:0] = drive select (active low), b[2] = side select (inverted)
+//   b[3] = density, b[5] = reset
+// Master:
+//   b[1:0] = drive select (active low), b[2] = reset
+//   b[4] = side select (inverted), b[5] = density
 always @(posedge CLK48M_I) begin 
 
 	if (!reset_n) begin
 		floppy_drive <= 4'b1111;
 		{ floppy_side, floppy_reset, floppy_density } <= 0;
 	end else if (cpu_clken) begin
-		// FE24 Drive control register
 		if (fdcon_enable & ~cpu_r_nw) begin
-			floppy_drive <= { 2'b11, ~cpu_do[1:0] };
-			floppy_reset <= cpu_do[2];
-			floppy_side <= ~cpu_do[4];
-			floppy_density <= cpu_do[5];
+			if (master) begin
+				// Master: FE24 drive control register
+				floppy_drive <= { 2'b11, ~cpu_do[1:0] };
+				floppy_reset <= cpu_do[2];
+				floppy_side <= ~cpu_do[4];
+				floppy_density <= cpu_do[5];
+			end else begin
+				// Model B: FE80 drive control latch (74LS174)
+				floppy_drive <= { 2'b11, ~cpu_do[1:0] };
+				floppy_reset <= cpu_do[5];
+				floppy_side <= ~cpu_do[2];
+				floppy_density <= cpu_do[3];
+			end
 		end
 	end
 end
