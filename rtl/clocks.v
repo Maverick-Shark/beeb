@@ -1,4 +1,4 @@
-	`timescale 1ns / 1ps
+`timescale 1ns / 1ps
 /*
 Copyright (c) 2012, Stephen J Leary
 All rights reserved.
@@ -38,6 +38,9 @@ module clocks(
 		output wire mhz2_clken,
 		output wire mhz1_clken,
 
+		output wire z80_mhz12_clken,
+		output wire z80_mhz6_clken,
+
 		output wire cpu_cycle,
 		output wire cpu_clken,
 		output wire cpu_phi0,
@@ -73,22 +76,34 @@ assign vid_clken =
 	clken_counter == 40 ||
 	clken_counter == 43 ||
 	clken_counter == 46;
+
+// 15/31/47 - I'ts a 3MHz enable clock (3 pulses) not 6 MHz!!!
 assign mhz6_clken = clken_counter == 15 || clken_counter == 31 || clken_counter == 47;
-//  1,3,5...
+// 11/23/35/47
 assign mhz4_clken = clken_counter == 11 || clken_counter == 23 || clken_counter == 35 || clken_counter == 47;
-//  15/31
-assign mhz2_clken = clken_counter == 23 || clken_counter == 47;
 // 23/47
+assign mhz2_clken = clken_counter == 23 || clken_counter == 47;
+// 47
+assign mhz1_clken = clken_counter == 47;
+
+//  Z80 CoPro clock enables: one pulse of one clk_48m cycle, evenly spaced.
+//  Both are phase aligned with the mhzN_clken family (all coincide on cycle 47)
+//  and every 6 MHz pulse coincides with a 12 MHz pulse, so a speed mux
+//  (turbo ? z80_mhz12_clken : z80_mhz6_clken) switches glitch free.
+//  12 MHz = one pulse every 4 cycles: 3, 7, 11, ... 47
+assign z80_mhz12_clken = clken_counter[1:0] == 2'b11;
+//  6 MHz = one pulse every 8 cycles: 7, 15, 23, 31, 39, 47
+assign z80_mhz6_clken = clken_counter[2:0] == 3'b111;
+
+// 1/25
 assign tube_clken = tube_cfg == 1 ? mhz4_clken :
                     tube_cfg == 2 ? (clken_counter == 1  || clken_counter == 7  || clken_counter == 13 || clken_counter == 19 || 
                                      clken_counter == 25 || clken_counter == 31 || clken_counter == 37 || clken_counter == 43) :
                     tube_cfg == 3 ? vid_clken :
                     1'b0;
-// 1/25
-assign mhz1_clken = clken_counter == 47;
-// 47
-assign cpu_cycle = clken_counter == 0 || clken_counter == 24;
 // 0/24
+assign cpu_cycle = clken_counter == 0 || clken_counter == 24;
+
 assign cpu_clken = cpu_cycle & ~cpu_cycle_mask[1] & ~cpu_cycle_mask[0];
 
 assign cpu_phi0 = clken_counter == 0 || clken_counter >= 36 || (clken_counter > 12 && clken_counter <= 24);

@@ -25,6 +25,6 @@ set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) CoPro65
 set_global_assignment -name VHDL_FILE    [file join $::quartus(qip_path) tuberom_65c102.vhd]
 set_global_assignment -name QIP_FILE     [file join $::quartus(qip_path) Tube/Tube.qip]
 # ── Acorn Z80 Second Processor ─────────────────────────────────────────────
-set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) CoProAcornZ80.v]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) CoProZ80.v]
 set_global_assignment -name VHDL_FILE    [file join $::quartus(qip_path) acorn_z80_rom.vhd]
 set_global_assignment -name QIP_FILE     [file join $::quartus(qip_path) T80/T80.qip]

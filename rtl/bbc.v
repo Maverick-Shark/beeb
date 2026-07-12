@@ -1,7 +1,6 @@
 `timescale 1ns / 1ps
 
 module bbc(
-
 	input       CLK48M_I,
 	input       RESET_I,
 
@@ -76,7 +75,7 @@ module bbc(
 	input   [7:0] cmos_di,
 	output  [7:0] cmos_do,
 
-	input   [1:0] tube_cfg,
+	input   [1:0] tube_cfg,         // 00=Off, 01=4MHz, 10=8MHz, 11=16MHz
 	// Co-proc RAM (CoPro6502 / 65C102)
 	output [15:0] tube_ram_addr,
 	output  [7:0] tube_ram_data_in,
@@ -84,6 +83,7 @@ module bbc(
 	output        tube_ram_wr,
 
 	// ── Acorn Z80 Second Processor ──────────────────────────────
+	input         z80_turbo,          // 0=6 MHz, 1=12 MHz
 	input   [1:0] acorn_z80_cfg,    // 00=Off, 01=v1.20, 10=v2.00
 	output [15:0] z80_ram_addr,
 	output  [7:0] z80_ram_data_in,
@@ -119,6 +119,8 @@ wire    mhz6_clken;
 wire    mhz4_clken;
 wire    mhz2_clken;
 wire    mhz1_clken;
+wire    z80_mhz12_clken;
+wire    z80_mhz6_clken;
 
 wire    ttxt_clken;
 wire    ttxt_clkenx2;
@@ -351,6 +353,9 @@ clocks CLOCKS(
 	.mhz4_clken		( mhz4_clken	),
 	.mhz2_clken		( mhz2_clken	),
 	.mhz1_clken		( mhz1_clken	),
+
+	.z80_mhz12_clken(z80_mhz12_clken),
+	.z80_mhz6_clken	(z80_mhz6_clken ),
 
 	.mhz1_enable 	( mhz1_enable	),
 
@@ -658,7 +663,15 @@ CoPro6502 copro1 (
 // Acorn Z80 Second Processor
 wire acorn_z80_cs_b = ~(acorn_z80_active & cpu_clken);
 
-CoProAcornZ80 copro_z80 (
+// Z80 CoPro speed. Every 6 MHz enable pulse coincides with a 12 MHz pulse
+// (both hit clken_counter == 47), so this mux is glitch free and could even
+// be switched at runtime from an OSD bit. 6 MHz is the authentic speed of
+// the Acorn Z80 Second Processor (6.144 MHz on the 49.152 MHz Xilinx board).
+//wire z80_turbo     = 1'b0;     // OSD select  0=6MHz, 1=12MHz
+wire z80_cpu_clken = z80_turbo ? z80_mhz12_clken : z80_mhz6_clken;
+
+//CoProAcornZ80 copro_z80 (
+CoProZ80 copro_z80 (
     .h_clk        ( CLK48M_I            ),
     .h_cs_b       ( acorn_z80_cs_b      ),
     .h_rdnw       ( cpu_r_nw            ),
@@ -668,7 +681,7 @@ CoProAcornZ80 copro_z80 (
     .h_rst_b      ( reset_n             ),
     .h_irq_b      (                     ),
     .clk_cpu      ( CLK48M_I            ),
-    .cpu_clken    ( mhz6_clken          ),
+    .cpu_clken    ( z80_cpu_clken       ),
     .rom_sel      ( acorn_z80_cfg[1]    ),
     .ram_addr     ( z80_ram_addr        ),
     .ram_data_in  ( z80_ram_data_in     ),
@@ -898,10 +911,16 @@ fdc1772 #(.INVERT_HEAD_RA(1'b1), .MODEL(2), .CLK_EN(16'd4000)) FDC1772 (
 //   b[1:0] = drive select (active low), b[2] = reset
 //   b[4] = side select (inverted), b[5] = density
 always @(posedge CLK48M_I) begin 
-
 	if (!reset_n) begin
 		floppy_drive <= 4'b1111;
-		{ floppy_side, floppy_reset, floppy_density } <= 0;
+		floppy_side <= 1'b0;
+		// floppy_reset must start HIGH (FDC out of reset) so that the
+		// DFS boot-time FDC detection (writes 0x5A to FE85, reads back)
+		// succeeds. In real BBC hardware, /MR of the WD1772 is tied to
+		// the system reset line, NOT to FE80 bit 5, so the FDC comes
+		// out of reset immediately after power-on — before service 1.
+		floppy_reset <= 1'b1;
+		floppy_density <= 1'b0;
 	end else if (cpu_clken) begin
 		if (fdcon_enable & ~cpu_r_nw) begin
 			if (master) begin

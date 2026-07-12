@@ -179,7 +179,15 @@ assign SDRAM2_nWE = 1;
 
 `include "build_id.v"
 
-assign LED = ~loader_active;
+// ── Diagnostic LED: Z80 M1 cycle (test[2] = z80_m1_n) ─────────────
+// LED ACTIVE LOW on Poseidon CGX150:
+//   LED flickering rapidly (dim) = Z80 executing instructions
+//   LED stable ON  = Z80 stuck in M1 (instruction fetch or IACK)
+//   LED stable OFF = Z80 not fetching (HALT or stuck mid-instruction)
+// Previous tests confirmed: R4 stuck full + IRQ asserted at T80.
+// This test: is T80 actually executing instructions or stuck?
+wire z80_irq_n_diag;
+assign LED = z80_irq_n_diag;
 
 // the configuration string is returned to the io controller to allow
 // it to control the menu on the OSD 
@@ -193,9 +201,11 @@ parameter CONF_STR = {
         "O12,Scanlines,Off,25%,50%,75%;",
         "O3,Joystick Swap,Off,On;",
         "O4,Mode,Model B,Master;",
-        "O5,ROM mapping,High,Low;",
-        "O6,Auto boot,Off,On;",
-        "OE,Default FS,MMFS,DFS;",                      // status[14]
+        `SEP
+        "P1,Master;",
+        "P1O5,ROM mapping,High,Low;",
+        "P1O6,Auto boot,Off,On;",
+        "P1OC,Default FS,MMFS,DFS;",                    // status[12]
 `ifndef USE_EXPANSION
         `SEP
         "O7,Userport,Tape,UART;",
@@ -203,6 +213,16 @@ parameter CONF_STR = {
 `ifdef TUBE
         "O89,Tube Co-Pro,Disabled,4 MHz,8 MHz,16 MHz;",
         "OAB,Acorn Z80,Off,v1.20 ROM,v1.21 ROM;",       // status[11:10]
+        "OI,Z80 Speed,6 MHz,12 MHz;",                   // status[18]
+`endif
+`ifdef DEBUG
+        `SEP
+        "P2,Monitor/Debug;",
+        "P2OD,Z80 Monitor,Off,On;",                     // status[13]
+        "P2OE,Trace FEEx,Off,On;",                      // status[14]
+        "P2OF,Trace mode,One-shot,Free-run;",           // status[15]
+        "P2OG,Trace target,All,Writes only;",           // status[16]
+        "P2OH,Trace freeze,Run,Freeze;",                // status[17]
 `endif
         `SEP
         "R64,Save CMOS;",
@@ -217,15 +237,24 @@ wire       rommap = status[5];
 wire       autoboot = status[6];
 wire       uart_en = status[7];
 `ifdef TUBE
-wire [1:0] tube = status[9:8];
-wire [1:0] acorn_z80_cfg = status[11:10];  // 00=Off, 01=v1.20, 10=v2.00
+wire [1:0] tube = status[9:8];             // 00=Off, 01=4MHz, 10=8MHz, 11=16MHz
+wire       z80_cfg = status[18];           // 0=6MHz, 1=12MHz
+wire [1:0] acorn_z80_cfg = status[11:10];  // 00=Off, 01=v1.20, 10=v1.21
 wire       acorn_z80_en  = |acorn_z80_cfg;
 `else
-wire [1:0] tube = 0;
+wire [1:0] tube = 2'b00;
+wire [1:0] z80_cfg = 2'b00;
 wire [1:0] acorn_z80_cfg = 2'b00;
 wire       acorn_z80_en  = 1'b0;
 `endif
-wire       default_fs = status[14];        // Master: 0=MMFS, 1=DFS
+wire       default_fs = status[12];        // Master: 0=MMFS, 1=DFS
+`ifdef DEBUG
+wire       st_z80_monitor      = status[13];   // Z80 Monitor overlay enable
+wire       trace_enable        = status[14];   // Trace buffer (FEEx capture) enable
+wire       trace_mode_freerun  = status[15];   // 0=one-shot, 1=free-run
+wire       trace_filter_writes = status[16];   // 0=all accesses, 1=writes only
+wire       trace_freeze        = status[17];   // 1=freeze buffer (read at stall)
+`endif
 
 // generated clocks
 wire       clk_48m /* synthesis keep */ ;
@@ -234,6 +263,7 @@ wire       pll_ready;
 
 // core's raw video 
 wire       core_r, core_g, core_b, core_hs, core_vs;   
+
 wire       core_clken;
 
 // memory bus signals.
@@ -493,8 +523,8 @@ wire user_via_cb2_in;
 
 // reset core whenever the user changes the rom mapping
 //reg last_rom_map, last_model;   //, last_default_fs;
-reg last_rom_map, last_model, last_default_fs;
-reg [1:0] last_z80;
+reg        last_rom_map, last_model, last_default_fs;
+reg  [1:0] last_z80;
 reg [11:0] rom_map_counter = 12'h0;
 always @(posedge clk_48m) begin
 	last_rom_map    <= rommap;          // keeping last state
@@ -620,6 +650,7 @@ bbc BBC(
 	.tube_ram_wr    ( tube_ram_wr    ),
 
 	// Acorn Z80 Second Processor
+	.z80_turbo        ( z80_cfg            ),
 	.acorn_z80_cfg    ( acorn_z80_cfg      ),
 	.z80_ram_addr     ( z80_ram_addr       ),
 	.z80_ram_data_in  ( z80_ram_data_in    ),
@@ -657,18 +688,17 @@ wire filing_ram = (mem_adr[15:13] == 3'b110) & mem_acc_y;
 wire sideways_ram = sideways & (mem_romsel[3:2] == 2'b01);
 
 // Master: pages 0-3, 8-F
-// Model B: rommap is '1' if low mapping is selected in the menu
-//          rommap selects which 4 slots are ROM; remaining non-RAM slots also
-//          go through ROM mapping so they read from initialized SDRAM (not random data)
+// Model B: rommap selects which 4 slots are ROM; remaining non-RAM slots also
+// go through ROM mapping so they read from initialized SDRAM (not random data)
 wire sideways_rom = sideways & (
                     model  ? (mem_romsel[3:2] == 2'b00 || mem_romsel[3]) :
                              (rommap ? (mem_romsel[3:2] == 2'b00) : (mem_romsel[3:2] == 2'b11)));
 
 /*
-romsel=15  →  BASIC 2             (slot 4  →  SDRAM 0x90000)
-romsel=14  →  ARM v1.13c          (slot 5  →  SDRAM 0x94000)
-romsel=13  →  Model B MMFS v1.44  (slot 6  →  SDRAM 0x98000)
-romsel=12  →  Watford DDFS v1.54T (slot 7  →  SDRAM 0x9C000)
+romsel=15  →  BASIC         (slot 4  →  SDRAM 0x90000)
+romsel=14  →  FS principal  (slot 5  →  SDRAM 0x94000)
+romsel=13  →  FS secundaria (slot 6  →  SDRAM 0x98000)
+romsel=12  →  otra          (slot 7  →  SDRAM 0x9C000)
 */
 
 /*
@@ -797,9 +827,9 @@ mist_video #(.COLOR_DEPTH(1), .SD_HCNT_WIDTH(11), .SYNC_AND(1), .OUT_COLOR_DEPTH
 	.blend       ( 1'b0       ),
 
 	// video in
-	.R           ( core_r     ),
-	.G           ( core_g     ),
-	.B           ( core_b     ),
+	.R           ( core_r ),
+	.G           ( core_g ),
+	.B           ( core_b ),
 
 	.HSync       ( ~core_hs   ),
 	.VSync       ( ~core_vs   ),
@@ -855,9 +885,9 @@ mist_video #(.COLOR_DEPTH(1), .SD_HCNT_WIDTH(11), .SYNC_AND(1), .OUT_COLOR_DEPTH
 	.blend       ( 1'b0       ),
 
 	// video in
-	.R           ( core_r     ),
-	.G           ( core_g     ),
-	.B           ( core_b     ),
+	.R           ( core_r ),
+	.G           ( core_g ),
+	.B           ( core_b ),
 
 	.HSync       ( ~core_hs   ),
 	.VSync       ( ~core_vs   ),
